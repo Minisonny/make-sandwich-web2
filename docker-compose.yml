@@ -1,0 +1,85 @@
+# This is the docker-compose-yml file that must be able to start
+# your group's backend.
+
+# Remember to comment this file well!
+
+# After you have Docker and Docker Compose installed,
+# and this file is ready, you use this file and run it with:
+# `docker-compose up --build`
+
+version: "3"
+
+services:
+  server-a:
+    # image name of server A
+    image: andy/web2-server-a
+    # declare a dependency on the Message broker
+    depends_on:
+      -  rapid-runner-rabbit
+    # we would like to wait until RabbitMQ has started completely before starting the server
+    command: ["./utils/wait-for-it.sh", "rapid-runner-rabbit:5672", "--",  "npm", "start"]
+    build:
+      dockerfile: Dockerfile
+      context:  ./backend/server-a
+    # Here we map the port 3001 of the container to the port 3001 of the host.
+    # We exposed port 3001 in Dockerfile of server A already
+    ports:
+      - "3001:3001"
+    env_file:
+      - docker-compose.env
+    # connect this container to the same network with other containers
+    networks:
+      - backend
+
+  rapid-runner-rabbit:
+    image: rabbitmq:3-management
+    # expose ports 5672 and 15672 outside to host so that one might want to see what's in the message queue
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    expose:
+      - "5672"
+    networks:
+      - backend
+
+  # this part of server B is much similar to server A except we don't expose the port to host machine, but to other containers only
+  # port 8080 is exposed inside the image already
+  server-b:
+    image: amadeuspham/web2-server-b:0.2
+    depends_on:
+      -  rapid-runner-rabbit
+    command: ["./utils/wait-for-it.sh", "rapid-runner-rabbit:5672", "--",  "npm", "start"]
+    build:
+      dockerfile: Dockerfile
+      context:  ./backend/server-b
+    env_file:
+      - docker-compose.env
+    networks:
+      - backend
+
+  frontend:
+    image: duchong/frontend
+    # frontend only has connection to server-a
+    depends_on:
+      - server-a
+    # we don't want to start the frontend before server A has started so let's wait for it
+    command: ["./wait-for-it.sh", "server-a:3001", "--",  "npm", "start"]
+    build:
+      dockerfile: Dockerfile
+      context:  ./frontend/sandwhich
+    # map port 3000 to port 3000 of host machine. One can access from localhost:3000 from host machine's browser.
+    ports:
+      - "3000:3000"
+    # this is to define a dynamic root URL of server A
+    environment:
+      - SERVER_URL="http://server-a:3001/v1"
+    networks:
+      - backend
+
+# Here we create a named network, that all the backend components
+# must be added to for them to be able to communicate through
+# exposed ports.
+networks:
+  backend:
+
+# We use MongoDB Atlas. It's a cloud service so there is no need for a DB container.
